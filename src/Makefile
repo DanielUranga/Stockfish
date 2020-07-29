@@ -282,6 +282,7 @@ ifeq ($(COMP),gcc)
 	ifneq ($(KERNEL),Darwin)
 	   LDFLAGS += -Wl,--no-as-needed
 	endif
+	LDFLAGS += -static
 endif
 
 ifeq ($(COMP),mingw)
