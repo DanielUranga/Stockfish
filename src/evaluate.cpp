@@ -942,7 +942,7 @@ Value Eval::evaluate(const Position& pos) {
       balance += 200 * (pos.count<PAWN>(WHITE) - pos.count<PAWN>(BLACK));
       // Take NNUE eval only on balanced positions
       if (abs(balance) < NNUEThreshold)
-         return NNUE::evaluate(pos) + Tempo;
+         return NNUE::evaluate(pos);
   }
   return Evaluation<NO_TRACE>(pos).value();
 }
