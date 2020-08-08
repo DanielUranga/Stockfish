@@ -98,6 +98,7 @@ pext = no
 avx512 = no
 neon = no
 ARCH = x86-64-modern
+NNARCH = halfkp_256x2-32-32
 
 ### 2.2 Architecture specific
 ifeq ($(ARCH),general-32)
@@ -251,12 +252,25 @@ ifeq ($(ARCH),ppc-64)
 	prefetch = yes
 endif
 
+### 2.2 Network architecture specific
+ifeq ($(NNARCH),halfkp_256x2-32-32)
+	nnarch = ARCHITECTURE_HALFKP_256
+endif
+
+ifeq ($(NNARCH),halfkp_384x2-32-32)
+	nnarch = ARCHITECTURE_HALFKP_384
+endif
+
+ifeq ($(NNARCH),halfkp_512x2-32-32)
+	nnarch = ARCHITECTURE_HALFKP_512
+endif
+
 ### ==========================================================================
 ### Section 3. Low-level Configuration
 ### ==========================================================================
 
 ### 3.1 Selecting compiler (default = gcc)
-CXXFLAGS += -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS)
+CXXFLAGS += -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS) -D$(nnarch)
 DEPENDFLAGS += -std=c++17
 LDFLAGS += $(EXTRALDFLAGS)
 
@@ -694,7 +708,7 @@ config-sanity:
 	@test "$(comp)" = "gcc" || test "$(comp)" = "icc" || test "$(comp)" = "mingw" || test "$(comp)" = "clang"
 
 $(EXE): $(OBJS)
-	$(CXX) -o $@ $(OBJS) $(LDFLAGS)
+	$(CXX) -o $@-$(NNARCH)-$(ARCH) $(OBJS) $(LDFLAGS)
 
 clang-profile-make:
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
