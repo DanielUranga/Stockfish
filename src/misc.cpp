@@ -220,20 +220,17 @@ const std::string compiler_info() {
   #if defined(USE_AVX2)
     compiler += " AVX2";
   #endif
-  #if defined(USE_SSE42)
-    compiler += " SSE42";
-  #endif
   #if defined(USE_SSE41)
     compiler += " SSE41";
   #endif
   #if defined(USE_SSSE3)
     compiler += " SSSE3";
   #endif
-  #if defined(USE_SSE3)
-    compiler += " SSE3";
-  #endif
     compiler += (HasPext ? " BMI2" : "");
     compiler += (HasPopCnt ? " POPCNT" : "");
+  #if defined(USE_MMX)
+    compiler += " MMX";
+  #endif
   #if !defined(NDEBUG)
     compiler += " DEBUG";
   #endif
@@ -321,9 +318,9 @@ void prefetch(void* addr) {
 ///
 
 void* std_aligned_alloc(size_t alignment, size_t size) {
-#if defined(__APPLE__)
+#if (defined(__APPLE__) && defined(_LIBCPP_HAS_C11_FEATURES)) || defined(__ANDROID__) || defined(__OpenBSD__) || (defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC) && !defined(_WIN32))
   return aligned_alloc(alignment, size);
-#elif defined(_WIN32)
+#elif (defined(_WIN32) || (defined(__APPLE__) && !defined(_LIBCPP_HAS_C11_FEATURES)))
   return _mm_malloc(size, alignment);
 #else
   return std::aligned_alloc(alignment, size);
@@ -331,9 +328,9 @@ void* std_aligned_alloc(size_t alignment, size_t size) {
 }
 
 void std_aligned_free(void* ptr) {
-#if defined(__APPLE__)
+#if (defined(__APPLE__) && defined(_LIBCPP_HAS_C11_FEATURES)) || defined(__ANDROID__) || defined(__OpenBSD__) || (defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC) && !defined(_WIN32))
   free(ptr);
-#elif defined(_WIN32)
+#elif (defined(_WIN32) || (defined(__APPLE__) && !defined(_LIBCPP_HAS_C11_FEATURES)))
   _mm_free(ptr);
 #else
   free(ptr);
