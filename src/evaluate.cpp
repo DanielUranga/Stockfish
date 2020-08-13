@@ -111,10 +111,9 @@ using namespace Trace;
 namespace {
 
   // Threshold for lazy and space evaluation
-  constexpr Value LazyThreshold1 =  Value(1400);
-  constexpr Value LazyThreshold2 =  Value(1300);
+  constexpr Value LazyThreshold1  = Value(1400);
+  constexpr Value LazyThreshold2  = Value(1300);
   constexpr Value SpaceThreshold = Value(12222);
-  constexpr Value NNUEThreshold  =   Value(500);
 
   // KingAttackWeights[PieceType] contains king attack weights by piece type
   constexpr int KingAttackWeights[PIECE_TYPE_NB] = { 0, 0, 81, 52, 44, 10 };
@@ -939,16 +938,13 @@ make_v:
 /// evaluate() is the evaluator for the outer world. It returns a static
 /// evaluation of the position from the point of view of the side to move.
 
-Value Eval::evaluate(const Position& pos, Value alpha, Value beta) {
+Value Eval::evaluate(const Position& pos) {
 
   if (Eval::useNNUE)
-  {
-    Value v = eg_value(pos.psq_score());
-    if (v > alpha - NNUEThreshold && v < beta + NNUEThreshold)
       return NNUE::evaluate(pos);
-  }
-  return Evaluation<NO_TRACE>(pos).value();
-} 
+  else
+      return Evaluation<NO_TRACE>(pos).value();
+}
 
 /// trace() is like evaluate(), but instead of returning a value, it returns
 /// a string (suitable for outputting to stdout) that contains the detailed
