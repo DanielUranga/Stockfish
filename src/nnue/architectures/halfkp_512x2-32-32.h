@@ -18,8 +18,8 @@
 
 // Definition of input features and network structure used in NNUE evaluation function
 
-#ifndef NNUE_HALFKP_384X2_32_32_H_INCLUDED
-#define NNUE_HALFKP_384X2_32_32_H_INCLUDED
+#ifndef NNUE_HALFKP_512X2_32_32_H_INCLUDED
+#define NNUE_HALFKP_512X2_32_32_H_INCLUDED
 
 #include "../features/feature_set.h"
 #include "../features/half_kp.h"
@@ -35,7 +35,7 @@ using RawFeatures = Features::FeatureSet<
     Features::HalfKP<Features::Side::kFriend>>;
 
 // Number of input feature dimensions after conversion
-constexpr IndexType kTransformedFeatureDimensions = 384;
+constexpr IndexType kTransformedFeatureDimensions = 512;
 
 namespace Layers {
 
@@ -51,4 +51,4 @@ using Network = Layers::OutputLayer;
 
 }  // namespace Eval::NNUE
 
-#endif // #ifndef NNUE_HALFKP_384X2_32_32_H_INCLUDED
+#endif // #ifndef NNUE_HALFKP_512X2_32_32_H_INCLUDED

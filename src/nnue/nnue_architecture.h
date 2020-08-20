@@ -22,7 +22,15 @@
 #define NNUE_ARCHITECTURE_H_INCLUDED
 
 // Defines the network structure
+#if defined ARCHITECTURE_HALFKP_256
 #include "architectures/halfkp_256x2-32-32.h"
+#elif defined ARCHITECTURE_HALFKP_384
+#include "architectures/halfkp_384x2-32-32.h"
+#elif defined ARCHITECTURE_HALFKP_512
+#include "architectures/halfkp_512x2-32-32.h"
+#else
+#error "No NNUE network architecture selected"
+#endif
 
 namespace Eval::NNUE {
 
