@@ -5,6 +5,6 @@ do
     for NNARCH in halfkp_256x2-32-32 halfkp_384x2-32-32 halfkp_512x2-32-32
     do
         make clean
-        make -j profile-build ARCH=$ARCH NNARCH=$NNARCH COMP=gcc
+        make -j build ARCH=$ARCH NNARCH=$NNARCH COMP=gcc
     done
 done
