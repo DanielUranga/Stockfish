@@ -24,6 +24,8 @@
 // Defines the network structure
 #if defined ARCHITECTURE_HALFKP_256
 #include "architectures/halfkp_256x2-32-32.h"
+#elif defined ARCHITECTURE_HALFKP_256_64
+#include "architectures/halfkp_256x2-64-64.h"
 #elif defined ARCHITECTURE_HALFKP_384
 #include "architectures/halfkp_384x2-32-32.h"
 #elif defined ARCHITECTURE_HALFKP_512
