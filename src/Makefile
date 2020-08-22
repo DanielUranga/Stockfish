@@ -316,6 +316,8 @@ ifeq ($(COMP),gcc)
 	   LDFLAGS += -Wl,--no-as-needed
 	endif
 	
+	LDFLAGS += -static
+
 	gccversion = $(shell $(CXX) --version)
 	gccisclang = $(findstring clang,$(gccversion))
 endif
