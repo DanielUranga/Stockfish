@@ -84,6 +84,7 @@
 
 #if defined(EVAL_NNUE)
 #include "../nnue/evaluate_nnue_learner.h"
+#include <climits>
 #include <shared_mutex>
 #endif
 
@@ -122,6 +123,23 @@ bool detect_draw_by_consecutive_low_score = false;
 bool detect_draw_by_insufficient_mating_material = false;
 // 1.0 / PawnValueEg / 4.0 * log(10.0)
 double winning_probability_coefficient = 0.00276753015984861260098316280611;
+// Score scale factors.  ex) If we set src_score_min_value = 0.0,
+// src_score_max_value = 1.0, dest_score_min_value = 0.0,
+// dest_score_max_value = 10000.0, [0.0, 1.0] will be scaled to [0, 10000].
+double src_score_min_value = 0.0;
+double src_score_max_value = 1.0;
+double dest_score_min_value = 0.0;
+double dest_score_max_value = 1.0;
+// Assume teacher signals are the scores of deep searches, and convert them into winning
+// probabilities in the trainer. Sometimes we want to use the winning probabilities in the training
+// data directly. In those cases, we set false to this variable.
+bool convert_teacher_signal_to_winning_probability = true;
+// Use raw NNUE eval value in the Eval::evaluate(). If hybrid eval is enabled, training data
+// generation and training don't work well.
+// https://discordapp.com/channels/435943710472011776/733545871911813221/748524079761326192
+bool use_raw_nnue_eval = true;
+// Using WDL with win rate model instead of sigmoid
+bool use_wdl = false;
 
 // -----------------------------------
 // write phase file
@@ -1039,6 +1057,8 @@ void gen_sfen(Position&, istringstream& is)
 			is >> detect_draw_by_consecutive_low_score;
 		else if (token == "detect_draw_by_insufficient_mating_material")
 			is >> detect_draw_by_insufficient_mating_material;
+		else if (token == "use_raw_nnue_eval")
+			is >> use_raw_nnue_eval;
 		else
 			cout << "Error! : Illegal token " << token << endl;
 	}
@@ -1151,6 +1171,45 @@ double winning_percentage(double value)
 	// = sigmoid(Eval/4*ln(10))
 	return sigmoid(value * winning_probability_coefficient);
 }
+
+// A function that converts the evaluation value to the winning rate [0,1]
+double winning_percentage_wdl(double value, int ply)
+{
+	double wdl_w = UCI::win_rate_model_double( value, ply);
+	double wdl_l = UCI::win_rate_model_double(-value, ply);
+	double wdl_d = 1000.0 - wdl_w - wdl_l;
+
+	return (wdl_w + wdl_d / 2.0) / 1000.0;
+}
+
+// A function that converts the evaluation value to the winning rate [0,1]
+double winning_percentage(double value, int ply)
+{
+	if (use_wdl) {
+		return winning_percentage_wdl(value, ply);
+	}
+	else {
+		return winning_percentage(value);
+	}
+}
+
+double calc_cross_entropy_of_winning_percentage(double deep_win_rate, double shallow_eval, int ply)
+{
+	double p = deep_win_rate;
+	double q = winning_percentage(shallow_eval, ply);
+	return -p * std::log(q) - (1 - p) * std::log(1 - q);
+}
+
+double calc_d_cross_entropy_of_winning_percentage(double deep_win_rate, double shallow_eval, int ply)
+{
+	constexpr double epsilon = 0.000001;
+	double y1 = calc_cross_entropy_of_winning_percentage(deep_win_rate, shallow_eval          , ply);
+	double y2 = calc_cross_entropy_of_winning_percentage(deep_win_rate, shallow_eval + epsilon, ply);
+
+	// Divide by the winning_probability_coefficient to match scale with the sigmoidal win rate
+	return ((y2 - y1) / epsilon) / winning_probability_coefficient;
+}
+
 double dsigmoid(double x)
 {
 	// Sigmoid function
@@ -1240,42 +1299,72 @@ double ELMO_LAMBDA = 0.33;
 double ELMO_LAMBDA2 = 0.33;
 double ELMO_LAMBDA_LIMIT = 32000;
 
-double calc_grad(Value deep, Value shallow , const PackedSfenValue& psv)
+double calc_grad(Value teacher_signal, Value shallow , const PackedSfenValue& psv)
 {
 	// elmo (WCSC27) method
 	// Correct with the actual game wins and losses.
 
-	const double q = winning_percentage(shallow);
-	const double p = winning_percentage(deep);
+	// Training Formula · Issue #71 · nodchip/Stockfish https://github.com/nodchip/Stockfish/issues/71
+	double scaled_teacher_signal = teacher_signal;
+	// Normalize to [0.0, 1.0].
+	scaled_teacher_signal = (scaled_teacher_signal - src_score_min_value) / (src_score_max_value - src_score_min_value);
+	// Scale to [dest_score_min_value, dest_score_max_value].
+	scaled_teacher_signal = scaled_teacher_signal * (dest_score_max_value - dest_score_min_value) + dest_score_min_value;
+
+	const double q = winning_percentage(shallow, psv.gamePly);
+	// Teacher winning probability.
+	double p = scaled_teacher_signal;
+	if (convert_teacher_signal_to_winning_probability) {
+		p = winning_percentage(scaled_teacher_signal, psv.gamePly);
+	}
 
 	// Use 1 as the correction term if the expected win rate is 1, 0 if you lose, and 0.5 if you draw.
 	// game_result = 1,0,-1 so add 1 and divide by 2.
 	const double t = double(psv.game_result + 1) / 2;
 
 	// If the evaluation value in deep search exceeds ELMO_LAMBDA_LIMIT, apply ELMO_LAMBDA2 instead of ELMO_LAMBDA.
-	const double lambda = (abs(deep) >= ELMO_LAMBDA_LIMIT) ? ELMO_LAMBDA2 : ELMO_LAMBDA;
+	const double lambda = (abs(teacher_signal) >= ELMO_LAMBDA_LIMIT) ? ELMO_LAMBDA2 : ELMO_LAMBDA;
 
-	// Use the actual win rate as a correction term.
-	// This is the idea of ​​elmo (WCSC27), modern O-parts.
-	const double grad = lambda * (q - p) + (1.0 - lambda) * (q - t);
+	double grad;
+	if (use_wdl) {
+		double dce_p = calc_d_cross_entropy_of_winning_percentage(p, shallow, psv.gamePly);
+		double dce_t = calc_d_cross_entropy_of_winning_percentage(t, shallow, psv.gamePly);
+		grad = lambda * dce_p + (1.0 - lambda) * dce_t;
+	}
+	else {
+		// Use the actual win rate as a correction term.
+		// This is the idea of ​​elmo (WCSC27), modern O-parts.
+		grad = lambda * (q - p) + (1.0 - lambda) * (q - t);
+	}
 
 	return grad;
 }
 
 // Calculate cross entropy during learning
 // The individual cross entropy of the win/loss term and win rate term of the elmo expression is returned to the arguments cross_entropy_eval and cross_entropy_win.
-void calc_cross_entropy(Value deep, Value shallow, const PackedSfenValue& psv,
+void calc_cross_entropy(Value teacher_signal, Value shallow, const PackedSfenValue& psv,
 	double& cross_entropy_eval, double& cross_entropy_win, double& cross_entropy,
 	double& entropy_eval, double& entropy_win, double& entropy)
 {
-	const double p /* teacher_winrate */ = winning_percentage(deep);
+	// Training Formula · Issue #71 · nodchip/Stockfish https://github.com/nodchip/Stockfish/issues/71
+	double scaled_teacher_signal = teacher_signal;
+	// Normalize to [0.0, 1.0].
+	scaled_teacher_signal = (scaled_teacher_signal - src_score_min_value) / (src_score_max_value - src_score_min_value);
+	// Scale to [dest_score_min_value, dest_score_max_value].
+	scaled_teacher_signal = scaled_teacher_signal * (dest_score_max_value - dest_score_min_value) + dest_score_min_value;
+
+	// Teacher winning probability.
+	double p = scaled_teacher_signal;
+	if (convert_teacher_signal_to_winning_probability) {
+		p = winning_percentage(scaled_teacher_signal);
+	}
 	const double q /* eval_winrate    */ = winning_percentage(shallow);
 	const double t = double(psv.game_result + 1) / 2;
 
 	constexpr double epsilon = 0.000001;
 
 	// If the evaluation value in deep search exceeds ELMO_LAMBDA_LIMIT, apply ELMO_LAMBDA2 instead of ELMO_LAMBDA.
-	const double lambda = (abs(deep) >= ELMO_LAMBDA_LIMIT) ? ELMO_LAMBDA2 : ELMO_LAMBDA;
+	const double lambda = (abs(teacher_signal) >= ELMO_LAMBDA_LIMIT) ? ELMO_LAMBDA2 : ELMO_LAMBDA;
 
 	const double m = (1.0 - lambda) * t + lambda * p;
 
@@ -2614,9 +2703,14 @@ void convert_bin(const vector<string>& filenames, const string& output_file_name
 				}
 			}
 			else if (token == "score") {
-				int32_t score;
+				double score;
 				ss >> score;
-				p.score = Math::clamp(score , -(int32_t)VALUE_MATE , (int32_t)VALUE_MATE);
+				// Training Formula · Issue #71 · nodchip/Stockfish https://github.com/nodchip/Stockfish/issues/71
+				// Normalize to [0.0, 1.0].
+				score = (score - src_score_min_value) / (src_score_max_value - src_score_min_value);
+				// Scale to [dest_score_min_value, dest_score_max_value].
+				score = score * (dest_score_max_value - dest_score_min_value) + dest_score_min_value;
+				p.score = Math::clamp((int32_t)std::round(score) , -(int32_t)VALUE_MATE , (int32_t)VALUE_MATE);
 			}
 			else if (token == "ply") {
 				int temp;
@@ -2732,9 +2826,25 @@ Value parse_score_from_pgn_extract(std::string eval, bool& success) {
 	}
 }
 
-void convert_bin_from_pgn_extract(const vector<string>& filenames, const string& output_file_name, const bool pgn_eval_side_to_move)
+// for Debug
+//#define DEBUG_CONVERT_BIN_FROM_PGN_EXTRACT
+
+bool is_like_fen(std::string fen) {
+	int count_space = std::count(fen.cbegin(), fen.cend(), ' ');
+	int count_slash = std::count(fen.cbegin(), fen.cend(), '/');
+
+#if defined(DEBUG_CONVERT_BIN_FROM_PGN_EXTRACT)
+	//std::cout << "count_space=" << count_space << std::endl;
+	//std::cout << "count_slash=" << count_slash << std::endl;
+#endif
+
+	return count_space == 5 && count_slash == 7;
+}
+
+void convert_bin_from_pgn_extract(const vector<string>& filenames, const string& output_file_name, const bool pgn_eval_side_to_move, const bool convert_no_eval_fens_as_score_zero)
 {
 	std::cout << "pgn_eval_side_to_move=" << pgn_eval_side_to_move << std::endl;
+	std::cout << "convert_no_eval_fens_as_score_zero=" << convert_no_eval_fens_as_score_zero << std::endl;
 
 	auto th = Threads.main();
 	auto &pos = th->rootPos;
@@ -2766,8 +2876,9 @@ void convert_bin_from_pgn_extract(const vector<string>& filenames, const string&
 				// example: [Result "1-0"]
 				if (std::regex_search(line, match, pattern_result)) {
 					game_result = parse_game_result_from_pgn_extract(match.str(1));
-					//std::cout << "game_result=" << game_result << std::endl;
-
+#if defined(DEBUG_CONVERT_BIN_FROM_PGN_EXTRACT)
+					std::cout << "game_result=" << game_result << std::endl;
+#endif
 					game_count++;
 					if (game_count % 10000 == 0) {
 						std::cout << now_string() << " game_count=" << game_count << ", fen_count=" << fen_count << std::endl;
@@ -2778,80 +2889,131 @@ void convert_bin_from_pgn_extract(const vector<string>& filenames, const string&
 			}
 
 			else {
-				int gamePly = 0;
-				bool first = true;
-
-				PackedSfenValue psv;
-				memset((char*)&psv, 0, sizeof(PackedSfenValue));
-
+				int gamePly = 1;
 				auto itr = line.cbegin();
 
 				while (true) {
 					gamePly++;
 
-					std::regex pattern_bracket(R"(\{(.+?)\})");
+					PackedSfenValue psv;
+					memset((char*)&psv, 0, sizeof(PackedSfenValue));
 
-					std::regex pattern_eval1(R"(\[\%eval (.+?)\])");
-					std::regex pattern_eval2(R"((.+?)\/)");
+					// fen
+					{
+						bool fen_found = false;
 
-					// very slow
-					//std::regex pattern_eval1(R"(\[\%eval (#?[+-]?(?:\d+\.?\d*|\.\d+))\])");
-					//std::regex pattern_eval2(R"((#?[+-]?(?:\d+\.?\d*|\.\d+)\/))");
+						while (!fen_found) {
+							std::regex pattern_bracket(R"(\{(.+?)\})");
+							std::smatch match;
+							if (!std::regex_search(itr, line.cend(), match, pattern_bracket)) {
+								break;
+							}
 
-					std::regex pattern_move(R"((.+?)\{)");
-					std::smatch match;
+							itr += match.position(0) + match.length(0) - 1;
+							std::string str_fen = match.str(1);
+							trim(str_fen);
 
-					// example: { [%eval 0.25] [%clk 0:10:00] }
-					// example: { +0.71/22 1.2s }
-					// example: { book }
-					if (!std::regex_search(itr, line.cend(), match, pattern_bracket)) {
-						break;
+							if (is_like_fen(str_fen)) {
+								fen_found = true;
+
+								StateInfo si;
+								pos.set(str_fen, false, &si, th);
+								pos.sfen_pack(psv.sfen);
+							}
+
+#if defined(DEBUG_CONVERT_BIN_FROM_PGN_EXTRACT)
+							std::cout << "str_fen=" << str_fen << std::endl;
+							std::cout << "fen_found=" << fen_found << std::endl;
+#endif
+						}
+
+						if (!fen_found) {
+							break;
+						}
 					}
 
-					itr += match.position(0) + match.length(0);
-					std::string str_eval_clk = match.str(1);
-					trim(str_eval_clk);
-					//std::cout << "str_eval_clk="<< str_eval_clk << std::endl;
+					// move
+					{
+						std::regex pattern_move(R"(\}(.+?)\{)");
+						std::smatch match;
+						if (!std::regex_search(itr, line.cend(), match, pattern_move)) {
+							break;
+						}
 
-					if (str_eval_clk == "book") {
-						//std::cout << "book" << std::endl;
+						itr += match.position(0) + match.length(0) - 1;
+						std::string str_move = match.str(1);
+						trim(str_move);
+#if defined(DEBUG_CONVERT_BIN_FROM_PGN_EXTRACT)
+						std::cout << "str_move=" << str_move << std::endl;
+#endif
+						psv.move = UCI::to_move(pos, str_move);
+					}
 
-						// example: { rnbqkbnr/pppppppp/8/8/8/4P3/PPPP1PPP/RNBQKBNR b KQkq - 0 1 }
+					// eval
+					bool eval_found = false;
+					{
+						std::regex pattern_bracket(R"(\{(.+?)\})");
+						std::smatch match;
 						if (!std::regex_search(itr, line.cend(), match, pattern_bracket)) {
 							break;
 						}
-						itr += match.position(0) + match.length(0);
-						continue;
-					}
 
-					// example: [%eval 0.25]
-					// example: [%eval #-4]
-					// example: [%eval #3]
-					// example: +0.71/
-					if (std::regex_search(str_eval_clk, match, pattern_eval1) ||
-						std::regex_search(str_eval_clk, match, pattern_eval2)) {
-						std::string str_eval = match.str(1);
-						trim(str_eval);
-						//std::cout << "str_eval=" << str_eval << std::endl;
+						std::string str_eval_clk = match.str(1);
+						trim(str_eval_clk);
+#if defined(DEBUG_CONVERT_BIN_FROM_PGN_EXTRACT)
+						std::cout << "str_eval_clk=" << str_eval_clk << std::endl;
+#endif
 
-						bool success = false;
-						psv.score = Math::clamp(parse_score_from_pgn_extract(str_eval, success), -VALUE_MATE , VALUE_MATE);
-						//std::cout << "success=" << success << ", psv.score=" << psv.score << std::endl;
+						// example: { [%eval 0.25] [%clk 0:10:00] }
+						// example: { [%eval #-4] [%clk 0:10:00] }
+						// example: { [%eval #3] [%clk 0:10:00] }
+						// example: { +0.71/22 1.2s }
+						// example: { -M4/7 0.003s }
+						// example: { M3/245 0.017s }
+						// example: { +M1/245 0.010s, White mates }
+						// example: { 0.60 }
+						// example: { book }
+						// example: { rnbqkb1r/pp3ppp/2p1pn2/3p4/2PP4/2N2N2/PP2PPPP/R1BQKB1R w KQkq - 0 5 }
 
-						if (!success) {
-							//std::cout << "str_eval=" << str_eval << std::endl;
-							//std::cout << "success=" << success << ", psv.score=" << psv.score << std::endl;
-							break;
+						// Considering the absence of eval
+						if (!is_like_fen(str_eval_clk)) {
+							itr += match.position(0) + match.length(0) - 1;
+
+							if (str_eval_clk != "book") {
+								std::regex pattern_eval1(R"(\[\%eval (.+?)\])");
+								std::regex pattern_eval2(R"((.+?)\/)");
+
+								std::string str_eval;
+								if (std::regex_search(str_eval_clk, match, pattern_eval1) ||
+									std::regex_search(str_eval_clk, match, pattern_eval2)) {
+									str_eval = match.str(1);
+									trim(str_eval);
+								}
+								else {
+									str_eval = str_eval_clk;
+								}
+
+								bool success = false;
+								Value value = parse_score_from_pgn_extract(str_eval, success);
+								if (success) {
+									eval_found = true;
+									psv.score = Math::clamp(value, -VALUE_MATE , VALUE_MATE);
+								}
+
+#if defined(DEBUG_CONVERT_BIN_FROM_PGN_EXTRACT)
+								std::cout << "str_eval=" << str_eval << std::endl;
+								std::cout << "success=" << success << ", psv.score=" << psv.score << std::endl;
+#endif
+							}
 						}
 					}
-					else {
-						break;
-					}
 
-					if (first) {
-						first = false;
-					}
-					else {
+					// write
+					if (eval_found || convert_no_eval_fens_as_score_zero) {
+						if (!eval_found && convert_no_eval_fens_as_score_zero) {
+							psv.score = 0;
+						}
+
 						psv.gamePly = gamePly;
 						psv.game_result = game_result;
 
@@ -2862,45 +3024,10 @@ void convert_bin_from_pgn_extract(const vector<string>& filenames, const string&
 							psv.game_result *= -1;
 						}
 
-#if 0
-						std::cout << "write: "
-								  << "score=" << psv.score
-								  << ", move=" << psv.move
-								  << ", gamePly=" << psv.gamePly
-								  << ", game_result=" << (int)psv.game_result
-								  << std::endl;
-#endif
-
 						ofs.write((char*)&psv, sizeof(PackedSfenValue));
-						memset((char*)&psv, 0, sizeof(PackedSfenValue));
 
 						fen_count++;
 					}
-
-					// example: { rnbqkbnr/pppppppp/8/8/3P4/8/PPP1PPPP/RNBQKBNR b KQkq d3 0 1 }
-					if (!std::regex_search(itr, line.cend(), match, pattern_bracket)) {
-						break;
-					}
-
-					itr += match.position(0) + match.length(0);
-					std::string str_fen = match.str(1);
-					trim(str_fen);
-					//std::cout << "str_fen=" << str_fen << std::endl;
-
-					StateInfo si;
-					pos.set(str_fen, false, &si, th);
-					pos.sfen_pack(psv.sfen);
-
-					// example: d7d5 {
-					if (!std::regex_search(itr, line.cend(), match, pattern_move)) {
-						break;
-					}
-
-					itr += match.position(0) + match.length(0) - 1;
-					std::string str_move = match.str(1);
-					trim(str_move);
-					//std::cout << "str_move=" << str_move << std::endl;
-					psv.move = UCI::to_move(pos, str_move);
 				}
 
 				game_result = 0;
@@ -3008,6 +3135,7 @@ void learn(Position&, istringstream& is)
 	// convert teacher in pgn-extract format to Yaneura King's bin
 	bool use_convert_bin_from_pgn_extract = false;
 	bool pgn_eval_side_to_move = false;
+	bool convert_no_eval_fens_as_score_zero = false;
 	// File name to write in those cases (default is "shuffled_sfen.bin")
 	string output_file_name = "shuffled_sfen.bin";
 
@@ -3096,6 +3224,8 @@ void learn(Position&, istringstream& is)
 		else if (option == "winning_probability_coefficient") is >> winning_probability_coefficient;
 		// Discount rate
 		else if (option == "discount_rate") is >> discount_rate;
+		// Using WDL with win rate model instead of sigmoid
+		else if (option == "use_wdl") is >> use_wdl;
 
 		// No learning of KK/KKP/KPP/KPPP.
 		else if (option == "freeze_kk")    is >> freeze[0];
@@ -3149,6 +3279,13 @@ void learn(Position&, istringstream& is)
 		else if (option == "check_illegal_move") is >> check_illegal_move;
 		else if (option == "convert_bin_from_pgn-extract") use_convert_bin_from_pgn_extract = true;
 		else if (option == "pgn_eval_side_to_move") is >> pgn_eval_side_to_move;
+		else if (option == "convert_no_eval_fens_as_score_zero") is >> convert_no_eval_fens_as_score_zero;
+		else if (option == "src_score_min_value") is >> src_score_min_value;
+		else if (option == "src_score_max_value") is >> src_score_max_value;
+		else if (option == "dest_score_min_value") is >> dest_score_min_value;
+		else if (option == "dest_score_max_value") is >> dest_score_max_value;
+		else if (option == "convert_teacher_signal_to_winning_probability") is >> convert_teacher_signal_to_winning_probability;
+		else if (option == "use_raw_nnue_eval") is >> use_raw_nnue_eval;
 
 		// Otherwise, it's a filename.
 		else
@@ -3260,13 +3397,13 @@ void learn(Position&, istringstream& is)
 		cout << "convert_bin.." << endl;
 		convert_bin(filenames,output_file_name, ply_minimum, ply_maximum, interpolate_eval, check_invalid_fen, check_illegal_move);
 		return;
-		
+
 	}
 	if (use_convert_bin_from_pgn_extract)
 	{
 		Eval::init_NNUE();
 		cout << "convert_bin_from_pgn-extract.." << endl;
-		convert_bin_from_pgn_extract(filenames, output_file_name, pgn_eval_side_to_move);
+		convert_bin_from_pgn_extract(filenames, output_file_name, pgn_eval_side_to_move, convert_no_eval_fens_as_score_zero);
 		return;
 	}
 
