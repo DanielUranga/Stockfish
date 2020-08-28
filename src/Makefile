@@ -280,6 +280,10 @@ ifeq ($(NNARCH),halfkp_384x2-32-32)
 	nnarch = ARCHITECTURE_HALFKP_384
 endif
 
+ifeq ($(NNARCH),halfkp_384x2-64-64)
+	nnarch = ARCHITECTURE_HALFKP_384_64
+endif
+
 ifeq ($(NNARCH),halfkp_512x2-32-32)
 	nnarch = ARCHITECTURE_HALFKP_512
 endif

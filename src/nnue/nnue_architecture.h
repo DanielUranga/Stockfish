@@ -28,6 +28,8 @@
 #include "architectures/halfkp_256x2-64-64.h"
 #elif defined ARCHITECTURE_HALFKP_384
 #include "architectures/halfkp_384x2-32-32.h"
+#elif defined ARCHITECTURE_HALFKP_384_64
+#include "architectures/halfkp_384x2-64-64.h"
 #elif defined ARCHITECTURE_HALFKP_512
 #include "architectures/halfkp_512x2-32-32.h"
 #else
