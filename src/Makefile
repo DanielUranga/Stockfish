@@ -250,6 +250,10 @@ ifeq ($(NNARCH),halfkp_256x3-32-32)
 	nnarch = ARCHITECTURE_HALFKP_256_x3
 endif
 
+ifeq ($(NNARCH),halfkp_256x3-64-64)
+	nnarch = ARCHITECTURE_HALFKP_256_x3_64
+endif
+
 ifeq ($(NNARCH),halfkp_384x2-32-32)
 	nnarch = ARCHITECTURE_HALFKP_384
 endif
