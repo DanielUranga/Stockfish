@@ -3,7 +3,7 @@
 #ifndef _NNUE_TRAINER_INPUT_SLICE_H_
 #define _NNUE_TRAINER_INPUT_SLICE_H_
 
-#if defined(EVAL_LEARN) && defined(EVAL_NNUE)
+#if defined(EVAL_LEARN)
 
 #include "../../learn/learn.h"
 #include "../layers/input_slice.h"
@@ -18,10 +18,10 @@ class SharedInputTrainer {
  public:
   // factory function
   static std::shared_ptr<SharedInputTrainer> Create(
-      FeatureTransformer* feature_transformer) {
+      FeatureTransformer* ft) {
     static std::shared_ptr<SharedInputTrainer> instance;
     if (!instance) {
-      instance.reset(new SharedInputTrainer(feature_transformer));
+      instance.reset(new SharedInputTrainer(ft));
     }
     ++instance->num_referrers_;
     return instance;
@@ -105,13 +105,13 @@ class SharedInputTrainer {
 
  private:
   // constructor
-  SharedInputTrainer(FeatureTransformer* feature_transformer) :
+  SharedInputTrainer(FeatureTransformer* ft) :
       batch_size_(0),
       num_referrers_(0),
       num_calls_(0),
       current_operation_(Operation::kNone),
       feature_transformer_trainer_(Trainer<FeatureTransformer>::Create(
-          feature_transformer)),
+          ft)),
       output_(nullptr) {
   }
 
@@ -161,8 +161,8 @@ class Trainer<Layers::InputSlice<OutputDimensions, Offset>> {
  public:
   // factory function
   static std::shared_ptr<Trainer> Create(
-      LayerType* /*target_layer*/, FeatureTransformer* feature_transformer) {
-    return std::shared_ptr<Trainer>(new Trainer(feature_transformer));
+      LayerType* /*target_layer*/, FeatureTransformer* ft) {
+    return std::shared_ptr<Trainer>(new Trainer(ft));
   }
 
   // Set options such as hyperparameters
@@ -206,7 +206,7 @@ class Trainer<Layers::InputSlice<OutputDimensions, Offset>> {
       const IndexType input_offset = kInputDimensions * b;
       const IndexType output_offset = kOutputDimensions * b;
       for (IndexType i = 0; i < kInputDimensions; ++i) {
-        if (i < Offset || i >= Offset + kOutputDimensions) {
+        if ((int)i < (int)Offset || i >= Offset + kOutputDimensions) {
           gradients_[input_offset + i] = static_cast<LearnFloatType>(0.0);
         } else {
           gradients_[input_offset + i] = gradients[output_offset + i - Offset];
@@ -218,9 +218,9 @@ class Trainer<Layers::InputSlice<OutputDimensions, Offset>> {
 
  private:
   // constructor
-  Trainer(FeatureTransformer* feature_transformer):
+  Trainer(FeatureTransformer* ft):
       batch_size_(0),
-      shared_input_trainer_(SharedInputTrainer::Create(feature_transformer)) {
+      shared_input_trainer_(SharedInputTrainer::Create(ft)) {
   }
 
   // number of input/output dimensions
@@ -246,6 +246,6 @@ class Trainer<Layers::InputSlice<OutputDimensions, Offset>> {
 
 }  // namespace Eval
 
-#endif  // defined(EVAL_LEARN) && defined(EVAL_NNUE)
+#endif  // defined(EVAL_LEARN)
 
 #endif

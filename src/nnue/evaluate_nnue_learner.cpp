@@ -1,9 +1,10 @@
 ﻿// Code for learning NNUE evaluation function
 
-#if defined(EVAL_LEARN) && defined(EVAL_NNUE)
+#if defined(EVAL_LEARN)
 
 #include <random>
 #include <fstream>
+#include <filesystem>
 
 #include "../learn/learn.h"
 #include "../learn/learning_tools.h"
@@ -112,8 +113,13 @@ void SetOptions(const std::string& options) {
 void RestoreParameters(const std::string& dir_name) {
   const std::string file_name = Path::Combine(dir_name, NNUE::savedfileName);
   std::ifstream stream(file_name, std::ios::binary);
-  bool result = ReadParameters(stream);
+#ifndef NDEBUG
+  bool result =
+#endif
+  ReadParameters(stream);
+#ifndef NDEBUG
   assert(result);
+#endif
 
   SendMessages({{"reset"}});
 }
@@ -207,7 +213,7 @@ void save_eval(std::string dir_name) {
   // mkdir() will fail if this folder already exists, but
   // Apart from that. If not, I just want you to make it.
   // Also, assume that the folders up to EvalSaveDir have been dug.
-  Dependency::mkdir(eval_dir);
+  std::filesystem::create_directories(eval_dir);
 
   if (Options["SkipLoadingEval"] && NNUE::trainer) {
     NNUE::SendMessages({{"clear_unobserved_feature_weights"}});
@@ -215,8 +221,13 @@ void save_eval(std::string dir_name) {
 
   const std::string file_name = Path::Combine(eval_dir, NNUE::savedfileName);
   std::ofstream stream(file_name, std::ios::binary);
-  const bool result = NNUE::WriteParameters(stream);
+#ifndef NDEBUG
+  const bool result =
+#endif
+  NNUE::WriteParameters(stream);
+#ifndef NDEBUG
   assert(result);
+#endif
 
   std::cout << "save_eval() finished. folder = " << eval_dir << std::endl;
 }
@@ -228,4 +239,4 @@ double get_eta() {
 
 }  // namespace Eval
 
-#endif  // defined(EVAL_LEARN) && defined(EVAL_NNUE)
+#endif  // defined(EVAL_LEARN)

@@ -3,7 +3,7 @@
 #ifndef _NNUE_TRAINER_SUM_H_
 #define _NNUE_TRAINER_SUM_H_
 
-#if defined(EVAL_LEARN) && defined(EVAL_NNUE)
+#if defined(EVAL_LEARN)
 
 #include "../../learn/learn.h"
 #include "../layers/sum.h"
@@ -25,9 +25,9 @@ class Trainer<Layers::Sum<FirstPreviousLayer, RemainingPreviousLayers...>> :
  public:
   // factory function
   static std::shared_ptr<Trainer> Create(
-      LayerType* target_layer, FeatureTransformer* feature_transformer) {
+      LayerType* target_layer, FeatureTransformer* ft) {
     return std::shared_ptr<Trainer>(
-        new Trainer(target_layer, feature_transformer));
+        new Trainer(target_layer, ft));
   }
 
   // Set options such as hyperparameters
@@ -74,11 +74,11 @@ class Trainer<Layers::Sum<FirstPreviousLayer, RemainingPreviousLayers...>> :
 
  private:
   // constructor
-  Trainer(LayerType* target_layer, FeatureTransformer* feature_transformer):
-      Tail(target_layer, feature_transformer),
+  Trainer(LayerType* target_layer, FeatureTransformer* ft):
+      Tail(target_layer, ft),
       batch_size_(0),
       previous_layer_trainer_(Trainer<FirstPreviousLayer>::Create(
-          &target_layer->previous_layer_, feature_transformer)),
+          &target_layer->previous_layer_, ft)),
       target_layer_(target_layer) {
   }
 
@@ -110,9 +110,9 @@ class Trainer<Layers::Sum<PreviousLayer>> {
  public:
   // factory function
   static std::shared_ptr<Trainer> Create(
-      LayerType* target_layer, FeatureTransformer* feature_transformer) {
+      LayerType* target_layer, FeatureTransformer* ft) {
     return std::shared_ptr<Trainer>(
-        new Trainer(target_layer, feature_transformer));
+        new Trainer(target_layer, ft));
   }
 
   // Set options such as hyperparameters
@@ -154,10 +154,10 @@ class Trainer<Layers::Sum<PreviousLayer>> {
 
  private:
   // constructor
-  Trainer(LayerType* target_layer, FeatureTransformer* feature_transformer) :
+  Trainer(LayerType* target_layer, FeatureTransformer* ft) :
       batch_size_(0),
       previous_layer_trainer_(Trainer<PreviousLayer>::Create(
-          &target_layer->previous_layer_, feature_transformer)),
+          &target_layer->previous_layer_, ft)),
       target_layer_(target_layer) {
   }
 
@@ -185,6 +185,6 @@ class Trainer<Layers::Sum<PreviousLayer>> {
 
 }  // namespace Eval
 
-#endif  // defined(EVAL_LEARN) && defined(EVAL_NNUE)
+#endif  // defined(EVAL_LEARN)
 
 #endif

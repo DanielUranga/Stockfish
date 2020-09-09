@@ -51,6 +51,11 @@ typedef bool(*fun3_t)(HANDLE, CONST GROUP_AFFINITY*, PGROUP_AFFINITY);
 #include <sys/mman.h>
 #endif
 
+#if defined(__APPLE__) || defined(__ANDROID__) || defined(__OpenBSD__) || (defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC) && !defined(_WIN32))
+#define POSIXALIGNEDALLOC
+#include <stdlib.h>
+#endif
+
 #include "misc.h"
 #include "thread.h"
 
@@ -214,14 +219,15 @@ const std::string compiler_info() {
 
   compiler += "\nCompilation settings include: ";
   compiler += (Is64Bit ? " 64bit" : " 32bit");
+  #if defined(USE_VNNI)
+    compiler += " VNNI";
+  #endif
   #if defined(USE_AVX512)
     compiler += " AVX512";
   #endif
+  compiler += (HasPext ? " BMI2" : "");
   #if defined(USE_AVX2)
     compiler += " AVX2";
-  #endif
-  #if defined(USE_SSE42)
-    compiler += " SSE42";
   #endif
   #if defined(USE_SSE41)
     compiler += " SSE41";
@@ -229,11 +235,17 @@ const std::string compiler_info() {
   #if defined(USE_SSSE3)
     compiler += " SSSE3";
   #endif
-  #if defined(USE_SSE3)
-    compiler += " SSE3";
+  #if defined(USE_SSE2)
+    compiler += " SSE2";
   #endif
-    compiler += (HasPext ? " BMI2" : "");
-    compiler += (HasPopCnt ? " POPCNT" : "");
+  compiler += (HasPopCnt ? " POPCNT" : "");
+  #if defined(USE_MMX)
+    compiler += " MMX";
+  #endif
+  #if defined(USE_NEON)
+    compiler += " NEON";
+  #endif
+
   #if !defined(NDEBUG)
     compiler += " DEBUG";
   #endif
@@ -316,14 +328,17 @@ void prefetch(void* addr) {
 
 #endif
 
-/// Wrappers for systems where the c++17 implementation doesn't guarantee the availability of aligned_alloc.
-/// Memory allocated with std_aligned_alloc must be freed with std_aligned_free.
-///
+
+/// std_aligned_alloc() is our wrapper for systems where the c++17 implementation
+/// does not guarantee the availability of aligned_alloc(). Memory allocated with
+/// std_aligned_alloc() must be freed with std_aligned_free().
 
 void* std_aligned_alloc(size_t alignment, size_t size) {
-#if (defined(__APPLE__) && defined(_LIBCPP_HAS_C11_FEATURES)) || defined(__ANDROID__) || defined(__OpenBSD__) || (defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC) && !defined(_WIN32))
-  return aligned_alloc(alignment, size);
-#elif (defined(_WIN32) || (defined(__APPLE__) && !defined(_LIBCPP_HAS_C11_FEATURES)))
+
+#if defined(POSIXALIGNEDALLOC)
+  void *mem;
+  return posix_memalign(&mem, alignment, size) ? nullptr : mem;
+#elif defined(_WIN32)
   return _mm_malloc(size, alignment);
 #else
   return std::aligned_alloc(alignment, size);
@@ -331,16 +346,17 @@ void* std_aligned_alloc(size_t alignment, size_t size) {
 }
 
 void std_aligned_free(void* ptr) {
-#if (defined(__APPLE__) && defined(_LIBCPP_HAS_C11_FEATURES)) || defined(__ANDROID__) || defined(__OpenBSD__) || (defined(__GLIBCXX__) && !defined(_GLIBCXX_HAVE_ALIGNED_ALLOC) && !defined(_WIN32))
+
+#if defined(POSIXALIGNEDALLOC)
   free(ptr);
-#elif (defined(_WIN32) || (defined(__APPLE__) && !defined(_LIBCPP_HAS_C11_FEATURES)))
+#elif defined(_WIN32)
   _mm_free(ptr);
 #else
   free(ptr);
 #endif
 }
 
-/// aligned_ttmem_alloc() will return suitably aligned memory, and if possible use large pages.
+/// aligned_ttmem_alloc() will return suitably aligned memory, if possible using large pages.
 /// The returned pointer is the aligned one, while the mem argument is the one that needs
 /// to be passed to free. With c++17 some of this functionality could be simplified.
 
@@ -352,7 +368,9 @@ void* aligned_ttmem_alloc(size_t allocSize, void*& mem) {
   size_t size = ((allocSize + alignment - 1) / alignment) * alignment; // multiple of alignment
   if (posix_memalign(&mem, alignment, size))
      mem = nullptr;
+#if defined(MADV_HUGEPAGE)
   madvise(mem, allocSize, MADV_HUGEPAGE);
+#endif
   return mem;
 }
 
@@ -609,18 +627,27 @@ void* aligned_malloc(size_t size, size_t align)
     return p;
 }
 
+std::uint64_t get_file_size(std::fstream& fs)
+{
+    auto pos = fs.tellg();
+
+    fs.seekg(0, fstream::end);
+    const uint64_t eofPos = (uint64_t)fs.tellg();
+    fs.clear(); // Otherwise, the next seek may fail.
+    fs.seekg(0, fstream::beg);
+    const uint64_t begPos = (uint64_t)fs.tellg();
+    fs.seekg(pos);
+
+    return eofPos - begPos;
+}
+
 int read_file_to_memory(std::string filename, std::function<void* (uint64_t)> callback_func)
 {
     fstream fs(filename, ios::in | ios::binary);
     if (fs.fail())
         return 1;
 
-    fs.seekg(0, fstream::end);
-    uint64_t eofPos = (uint64_t)fs.tellg();
-    fs.clear(); // Otherwise the next seek may fail.
-    fs.seekg(0, fstream::beg);
-    uint64_t begPos = (uint64_t)fs.tellg();
-    uint64_t file_size = eofPos - begPos;
+    const uint64_t file_size = get_file_size(fs);
     //std::cout << "filename = " << filename << " , file_size = " << file_size << endl;
 
     // I know the file size, so call callback_func to get a buffer for this,
@@ -669,66 +696,3 @@ int write_memory_to_file(std::string filename, void* ptr, uint64_t size)
     fs.close();
     return 0;
 }
-
-// ----------------------------
-//     mkdir wrapper
-// ----------------------------
-
-// Specify relative to the current folder. Returns 0 on success, non-zero on failure.
-// Create a folder. Japanese is not used.
-// In case of gcc under msys2 environment, folder creation fails with _wmkdir(). Cause unknown.
-// Use _mkdir() because there is no help for it.
-
-#if defined(_WIN32)
-// for Windows
-
-#if defined(_MSC_VER)
-#include <codecvt> // I need this because I want wstring to mkdir
-#include <locale> // This is required for wstring_convert.
-
-namespace Dependency {
-    int mkdir(std::string dir_name)
-    {
-        std::wstring_convert<std::codecvt_utf8<wchar_t>, wchar_t> cv;
-        return _wmkdir(cv.from_bytes(dir_name).c_str());
-        //	::CreateDirectory(cv.from_bytes(dir_name).c_str(),NULL);
-    }
-}
-
-#elif defined(__GNUC__) 
-
-#include <direct.h>
-namespace Dependency {
-    int mkdir(std::string dir_name)
-    {
-        return _mkdir(dir_name.c_str());
-    }
-}
-
-#endif
-#elif defined(__linux__)
-
-// In the linux environment, this symbol _LINUX is defined in the makefile.
-
-// mkdir implementation for Linux.
-#include "sys/stat.h"
-
-namespace Dependency {
-    int mkdir(std::string dir_name)
-    {
-        return ::mkdir(dir_name.c_str(), 0777);
-    }
-}
-#else
-
-// In order to judge whether it is a Linux environment, we have to divide the makefile..
-// The function to dig a folder on linux is good for the time being... Only used to save the evaluation function file...
-
-namespace Dependency {
-    int mkdir(std::string dir_name)
-    {
-        return 0;
-    }
-}
-
-#endif

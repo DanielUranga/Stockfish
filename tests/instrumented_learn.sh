@@ -64,22 +64,11 @@ EOF
   ;;
 esac
 
-# simple command line testing
-for args in "eval" \
-            "go nodes 1000" \
-            "go depth 10" \
-            "go movetime 1000" \
-            "go wtime 8000 btime 8000 winc 500 binc 500" \
-            "bench 128 $threads 8 default depth"
-do
+mkdir -p training_data_01
+mkdir -p training_data_02
 
-   echo "$prefix $exeprefix ./stockfish $args $postfix"
-   eval "$prefix $exeprefix ./stockfish $args $postfix"
-
-done
-
-# more general testing, following an uci protocol exchange
-cat << EOF > game.exp
+# gensfen testing 01
+cat << EOF > gensfen01.exp
  set timeout 240
  spawn $exeprefix ./stockfish
 
@@ -87,19 +76,10 @@ cat << EOF > game.exp
  expect "uciok"
 
  send "setoption name Threads value $threads\n"
-
- send "ucinewgame\n"
- send "position startpos\n"
- send "go nodes 1000\n"
- expect "bestmove"
-
- send "position startpos moves e2e4 e7e6\n"
- send "go nodes 1000\n"
- expect "bestmove"
-
- send "position fen 5rk1/1K4p1/8/8/3B4/8/8/8 b - - 0 1\n"
- send "go depth 20\n"
- expect "bestmove"
+ send "setoption name Use NNUE value false\n"
+ send "isready\n"
+ send "gensfen depth 3 loop 100 use_draw_in_training_data_generation 1 eval_limit 32000 output_file_name training_data_01/training_data.bin use_raw_nnue_eval 0\n"
+ expect "gensfen finished."
 
  send "quit\n"
  expect eof
@@ -109,19 +89,20 @@ cat << EOF > game.exp
  exit \$value
 EOF
 
-#download TB as needed
-if [ ! -d ../tests/syzygy ]; then
-   curl -sL https://api.github.com/repos/niklasf/python-chess/tarball/9b9aa13f9f36d08aadfabff872882f4ab1494e95 | tar -xzf -
-   mv niklasf-python-chess-9b9aa13 ../tests/syzygy
-fi
-
-cat << EOF > syzygy.exp
+# gensfen testing 02
+cat << EOF > gensfen02.exp
  set timeout 240
  spawn $exeprefix ./stockfish
+
  send "uci\n"
- send "setoption name SyzygyPath value ../tests/syzygy/\n"
- expect "info string Found 35 tablebases" {} timeout {exit 1}
- send "bench 128 1 8 default depth\n"
+ expect "uciok"
+
+ send "setoption name Threads value $threads\n"
+ send "setoption name Use NNUE value true\n"
+ send "isready\n"
+ send "gensfen depth 3 loop 100 use_draw_in_training_data_generation 1 eval_limit 32000 output_file_name training_data_02/training_data.bin use_raw_nnue_eval 0\n"
+ expect "gensfen finished."
+
  send "quit\n"
  expect eof
 
@@ -130,7 +111,7 @@ cat << EOF > syzygy.exp
  exit \$value
 EOF
 
-for exp in game.exp syzygy.exp
+for exp in gensfen01.exp gensfen02.exp
 do
 
   echo "$prefix expect $exp $postfix"
@@ -142,4 +123,4 @@ done
 
 rm -f tsan.supp
 
-echo "instrumented testing OK"
+echo "instrumented learn testing OK"

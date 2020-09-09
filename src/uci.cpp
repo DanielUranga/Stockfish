@@ -24,17 +24,14 @@
 
 #include "evaluate.h"
 #include "movegen.h"
+#include "nnue/nnue_test_command.h"
 #include "position.h"
 #include "search.h"
+#include "syzygy/tbprobe.h"
 #include "thread.h"
 #include "timeman.h"
 #include "tt.h"
 #include "uci.h"
-#include "syzygy/tbprobe.h"
-
-#if defined(EVAL_NNUE) && defined(ENABLE_TEST_CMD)
-#include "nnue/nnue_test_command.h"
-#endif
 
 using namespace std;
 
@@ -53,11 +50,6 @@ namespace Learner
   // Learning from the generated game record
   void learn(Position& pos, istringstream& is);
 
-#if defined(GENSFEN2019)
-  // Automatic generation command of teacher phase under development
-  void gen_sfen2019(Position& pos, istringstream& is);
-#endif
-
   // A pair of reader and evaluation value. Returned by Learner::search(),Learner::qsearch().
   typedef std::pair<Value, std::vector<Move> > ValueAndPV;
 
@@ -67,7 +59,6 @@ namespace Learner
 }
 #endif
 
-#if defined(EVAL_NNUE) && defined(ENABLE_TEST_CMD)
 void test_cmd(Position& pos, istringstream& is)
 {
     // Initialize as it may be searched.
@@ -78,7 +69,6 @@ void test_cmd(Position& pos, istringstream& is)
 
     if (param == "nnue") Eval::NNUE::TestCommand(pos, is);
 }
-#endif
 
 namespace {
 
@@ -260,7 +250,7 @@ double UCI::win_rate_model_double(double v, int ply) {
    double b = (((bs[0] * m + bs[1]) * m + bs[2]) * m) + bs[3];
 
    // Transform eval to centipawns with limited range
-   double x = Utility::clamp(double(100 * v) / PawnValueEg, -1000.0, 1000.0);
+     double x = std::clamp(double(100 * v) / PawnValueEg, -1000.0, 1000.0);
 
    // Return win rate in per mille
    return 1000.0 / (1 + std::exp((a - x) / b));
@@ -363,20 +353,14 @@ void UCI::loop(int argc, char* argv[]) {
       else if (token == "gensfen") Learner::gen_sfen(pos, is);
       else if (token == "learn") Learner::learn(pos, is);
 
-#if defined (GENSFEN2019)
-	  // Command to generate teacher phase under development
-      else if (token == "gensfen2019") Learner::gen_sfen2019(pos, is);
-#endif
       // Command to call qsearch(),search() directly for testing
       else if (token == "qsearch") qsearch_cmd(pos);
       else if (token == "search") search_cmd(pos, is);
 
 #endif
 
-#if defined(EVAL_NNUE) && defined(ENABLE_TEST_CMD)
       // test command
       else if (token == "test") test_cmd(pos, is);
-#endif
       else
           sync_cout << "Unknown command: " << cmd << sync_endl;
 

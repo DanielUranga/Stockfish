@@ -1,7 +1,5 @@
 //Definition of input feature quantity K of NNUE evaluation function
 
-#if defined(EVAL_NNUE)
-
 #include "enpassant.h"
 #include "index_list.h"
 
@@ -32,8 +30,8 @@ namespace Eval {
 
       // Get a list of indices whose values ??have changed from the previous one in the feature quantity
       void EnPassant::AppendChangedIndices(
-        const Position& pos, Color perspective,
-        IndexList* removed, IndexList* added) {
+        const Position& /* pos */, Color /* perspective */,
+        IndexList* /* removed */, IndexList* /* added */) {
         // Not implemented.
         assert(false);
       }
@@ -43,5 +41,3 @@ namespace Eval {
   }  // namespace NNUE
 
 }  // namespace Eval
-
-#endif  // defined(EVAL_NNUE)

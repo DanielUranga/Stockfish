@@ -3,8 +3,6 @@
 #ifndef _NNUE_FEATURES_K_H_
 #define _NNUE_FEATURES_K_H_
 
-#if defined(EVAL_NNUE)
-
 #include "../../evaluate.h"
 #include "features_common.h"
 
@@ -35,6 +33,10 @@ class K {
   // Get a list of indices whose values ​​have changed from the previous one in the feature quantity
   static void AppendChangedIndices(const Position& pos, Color perspective,
                                    IndexList* removed, IndexList* added);
+
+private:
+  // Index of a feature for a given king position.
+  static IndexType MakeIndex(Color perspective, Square s, Color king_color);
 };
 
 }  // namespace Features
@@ -42,7 +44,5 @@ class K {
 }  // namespace NNUE
 
 }  // namespace Eval
-
-#endif  // defined(EVAL_NNUE)
 
 #endif
