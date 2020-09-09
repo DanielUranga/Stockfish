@@ -26,6 +26,8 @@
 #include "architectures/halfkp_256x2-32-32.h"
 #elif defined ARCHITECTURE_HALFKP_256_24
 #include "architectures/halfkp_256x2-24-24.h"
+#elif defined ARCHITECTURE_HALFKP_256_16
+#include "architectures/halfkp_256x2-16-16.h"
 #elif defined ARCHITECTURE_HALFKP_256_64
 #include "architectures/halfkp_256x2-64-64.h"
 #elif defined ARCHITECTURE_HALFKP_256_x3
