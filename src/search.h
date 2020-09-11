@@ -33,6 +33,10 @@ namespace Search {
 constexpr int CounterMovePruneThreshold = 0;
 
 
+#if defined(EVAL_LEARN)
+extern bool prune_at_shallow_depth_on_pv_node;
+#endif
+
 /// Stack struct keeps track of the information we need to remember from nodes
 /// shallower and deeper in the tree during the search. Each search thread has
 /// its own array of Stack objects, indexed by the current ply.
@@ -112,5 +116,16 @@ void init();
 void clear();
 
 } // namespace Search
+
+#if defined(EVAL_LEARN)
+namespace Learner {
+
+  // A pair of reader and evaluation value. Returned by Learner::search(),Learner::qsearch().
+  using ValueAndPV = std::pair<Value, std::vector<Move>>;
+
+  ValueAndPV qsearch(Position& pos);
+  ValueAndPV search(Position& pos, int depth_, size_t multiPV = 1, uint64_t nodesLimit = 0);
+}
+#endif
 
 #endif // #ifndef SEARCH_H_INCLUDED
