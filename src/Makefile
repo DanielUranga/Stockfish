@@ -114,6 +114,9 @@ avx512 = no
 neon = no
 ARCH = x86-64-modern
 NNARCH = halfkp_256x2-32-32
+STRIP = strip
+GIT_BRANCH = $(shell git branch --show-current)
+GIT_COMMIT = $(shell git rev-parse HEAD)
 
 ### 2.2 Architecture specific
 ifeq ($(ARCH),general-32)
@@ -761,7 +764,7 @@ config-sanity:
 	@test "$(comp)" = "gcc" || test "$(comp)" = "icc" || test "$(comp)" = "mingw" || test "$(comp)" = "clang"
 
 $(EXE): $(OBJS)
-	$(CXX) -o $@-$(NNARCH)-$(ARCH) $(OBJS) $(LDFLAGS)
+	$(CXX) -o $@-$(NNARCH)-$(ARCH)-$(GIT_BRANCH)-$(GIT_COMMIT) $(OBJS) $(LDFLAGS)
 
 clang-profile-make:
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
