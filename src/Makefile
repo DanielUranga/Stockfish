@@ -130,6 +130,8 @@ vnni512 = no
 neon = no
 ARCH = x86-64-modern
 STRIP = strip
+GIT_BRANCH = $(shell git branch --show-current)
+GIT_COMMIT = $(shell git rev-parse HEAD)
 
 ### BLAS libraries
 ifeq ($(KERNEL),Linux)
@@ -900,7 +902,7 @@ config-sanity:
 	|| test "$(comp)" = "armv7a-linux-androideabi16-clang"  || test "$(comp)" = "aarch64-linux-android21-clang"
 
 $(EXE): $(OBJS)
-	$(CXX) -o $@-$(NNARCH)-$(ARCH) $(OBJS) $(LDFLAGS)
+	$(CXX) -o $@-$(NNARCH)-$(ARCH)-$(GIT_BRANCH)-$(GIT_COMMIT) $(OBJS) $(LDFLAGS)
 
 clang-profile-make:
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
