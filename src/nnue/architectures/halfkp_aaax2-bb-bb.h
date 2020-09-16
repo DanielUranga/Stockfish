@@ -18,8 +18,8 @@
 
 // Definition of input features and network structure used in NNUE evaluation function
 
-#ifndef NNUE_HALFKP_256X2_64_64_H_INCLUDED
-#define NNUE_HALFKP_256X2_64_64_H_INCLUDED
+#ifndef NNUE_HALFKP_GENERIC_DEFINED
+#define NNUE_HALFKP_GENERIC_DEFINED
 
 #include "../features/feature_set.h"
 #include "../features/half_kp.h"
@@ -35,14 +35,14 @@ using RawFeatures = Features::FeatureSet<
     Features::HalfKP<Features::Side::kFriend>>;
 
 // Number of input feature dimensions after conversion
-constexpr IndexType kTransformedFeatureDimensions = 256;
+constexpr IndexType kTransformedFeatureDimensions = NN_TRANSFORMED_FEATURE_DIMENSIONS;
 
 namespace Layers {
 
 // Define network structure
 using InputLayer = InputSlice<kTransformedFeatureDimensions * 2>;
-using HiddenLayer1 = ClippedReLU<AffineTransform<InputLayer, 64>>;
-using HiddenLayer2 = ClippedReLU<AffineTransform<HiddenLayer1, 64>>;
+using HiddenLayer1 = ClippedReLU<AffineTransform<InputLayer, NN_NET_WIDTH>>;
+using HiddenLayer2 = ClippedReLU<AffineTransform<HiddenLayer1, NN_NET_WIDTH>>;
 using OutputLayer = AffineTransform<HiddenLayer2, 1>;
 
 }  // namespace Layers
@@ -51,4 +51,4 @@ using Network = Layers::OutputLayer;
 
 }  // namespace Eval::NNUE
 
-#endif // #ifndef NNUE_HALFKP_256X2_64_64_H_INCLUDED
+#endif // #ifndef NNUE_HALFKP_GENERIC_DEFINED
