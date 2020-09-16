@@ -113,7 +113,6 @@ pext = no
 avx512 = no
 neon = no
 ARCH = x86-64-modern
-NNARCH = halfkp_256x2-32-32
 STRIP = strip
 GIT_BRANCH = $(shell git branch --show-current)
 GIT_COMMIT = $(shell git rev-parse HEAD)
@@ -270,49 +269,12 @@ ifeq ($(ARCH),ppc-64)
 	prefetch = yes
 endif
 
-### 2.2 Network architecture specific
-ifeq ($(NNARCH),halfkp_256x2-32-32)
-	nnarch = ARCHITECTURE_HALFKP_256
-endif
-
-ifeq ($(NNARCH),halfkp_256x2-24-24)
-	nnarch = ARCHITECTURE_HALFKP_256_24
-endif
-
-ifeq ($(NNARCH),halfkp_256x2-16-16)
-	nnarch = ARCHITECTURE_HALFKP_256_16
-endif
-
-ifeq ($(NNARCH),halfkp_256x2-64-64)
-	nnarch = ARCHITECTURE_HALFKP_256_64
-endif
-
-ifeq ($(NNARCH),halfkp_256x3-32-32)
-	nnarch = ARCHITECTURE_HALFKP_256_x3
-endif
-
-ifeq ($(NNARCH),halfkp_256x3-64-64)
-	nnarch = ARCHITECTURE_HALFKP_256_x3_64
-endif
-
-ifeq ($(NNARCH),halfkp_384x2-32-32)
-	nnarch = ARCHITECTURE_HALFKP_384
-endif
-
-ifeq ($(NNARCH),halfkp_384x2-64-64)
-	nnarch = ARCHITECTURE_HALFKP_384_64
-endif
-
-ifeq ($(NNARCH),halfkp_512x2-32-32)
-	nnarch = ARCHITECTURE_HALFKP_512
-endif
-
 ### ==========================================================================
 ### Section 3. Low-level Configuration
 ### ==========================================================================
 
 ### 3.1 Selecting compiler (default = gcc)
-CXXFLAGS += -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS) $(LEARNCXXFLAGS) -D$(nnarch)
+CXXFLAGS += -Wall -Wcast-qual -fno-exceptions -std=c++17 $(EXTRACXXFLAGS) $(LEARNCXXFLAGS) -D NN_TRANSFORMED_FEATURE_DIMENSIONS=$(NN_TRANSFORMED_FEATURE_DIMENSIONS) -D NN_NET_WIDTH=$(NN_NET_WIDTH)
 DEPENDFLAGS += -std=c++17
 LDFLAGS += $(EXTRALDFLAGS) $(LEARNLDFLAGS)
 
@@ -764,7 +726,7 @@ config-sanity:
 	@test "$(comp)" = "gcc" || test "$(comp)" = "icc" || test "$(comp)" = "mingw" || test "$(comp)" = "clang"
 
 $(EXE): $(OBJS)
-	$(CXX) -o $@-$(NNARCH)-$(ARCH)-$(GIT_BRANCH)-$(GIT_COMMIT) $(OBJS) $(LDFLAGS)
+	$(CXX) -o $@-halfkp_$(NN_TRANSFORMED_FEATURE_DIMENSIONS)x2-$(NN_NET_WIDTH)-$(NN_NET_WIDTH)-$(ARCH)-$(GIT_BRANCH)-$(GIT_COMMIT) $(OBJS) $(LDFLAGS)
 
 clang-profile-make:
 	$(MAKE) ARCH=$(ARCH) COMP=$(COMP) \
