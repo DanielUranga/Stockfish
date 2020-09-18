@@ -119,6 +119,8 @@ vnni256 = no
 vnni512 = no
 neon = no
 STRIP = strip
+GIT_BRANCH = $(shell git branch --show-current)
+GIT_COMMIT = $(shell git rev-parse HEAD)
 
 ### 2.2 Architecture specific
 
