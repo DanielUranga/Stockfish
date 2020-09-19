@@ -37,6 +37,8 @@
 #include "incbin/incbin.h"
 
 
+#define NNUE_EMBEDDING_OFF
+
 // Macro to embed the default NNUE file data in the engine binary (using incbin.h, by Dale Weiler).
 // This macro invocation will declare the following three variables
 //     const unsigned char        gEmbeddedNNUEData[];  // a pointer to the embedded data
